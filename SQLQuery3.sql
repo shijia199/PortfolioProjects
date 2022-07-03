@@ -62,7 +62,6 @@ where dea.continent is not null
 order by 2,3
 
 --Population VS Vaccination in each country each day
-
 With PopvsVac (continent,location,date,population,new_vaccinations,rollingpeoplevaccinated)
 as
 (
@@ -80,7 +79,6 @@ from PopvsVac
 order by 2,3
 
 -- temp table
-
 drop table if exists #PercentPopulationVaccinated
 create table #PercentPopulationVaccinated
 (
@@ -104,11 +102,6 @@ where dea.continent is not null
 
 select *,(rollingpeoplevaccinated/population)*100
 from #PercentPopulationVaccinated
-
-
-
-
-
 
 -- Creating View to store data for later visualizations
 
