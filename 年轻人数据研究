@@ -1,0 +1,243 @@
+#--------------------data preprocessing
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+data = pd.read_csv("Data/responses.csv")
+data = data.fillna(axis=0,method='ffill')
+
+numerics = ['int16', 'int32', 'int64', 'float16', 'float32', 'float64']
+data.select_dtypes(exclude=numerics)
+data['Smoking'] = data['Smoking'].replace(['never smoked','tried smoking','former smoker','current smoker'],[1.0,2.0,3.0,4.0])
+data['Alcohol'] = data['Alcohol'].replace(['never','social drinker','drink a lot'],[1.0,2.0,3.0])
+data['Punctuality'] = data['Punctuality'].replace(['i am often early','i am always on time','i am often running late'],[3.0,2.0,1.0])
+data['Lying'] = data['Lying'].replace(['never','only to avoid hurting someone','sometimes','everytime it suits me'],[1.0,2.0,3.0,4.0])
+data['Internet usage'] = data['Internet usage'].replace(['no time at all','less than an hour a day','few hours a day','most of the day'],[1.0,2.0,3.0,4.0])
+data['Education'] = data['Education'].replace(['currently a primary school pupil','primary school','secondary school','college/bachelor degree','masters degree','doctorate degree'],[1.0,2.0,3.0,4.0,5.0,6.0])
+
+def class_mapping(char):
+    mapping = {label:(idx+1) for idx,label in enumerate(set(data[char]))}
+    data[char] = data[char].map(mapping)
+chars = list(data.select_dtypes(exclude=numerics).columns)
+for char in chars:
+    class_mapping(char)
+
+correlation = data.corr()['Personality'].loc[np.abs(data.corr()['Personality'])>0.1].sort_values(ascending=False)
+index = correlation.index
+index_list = list(index)
+len(index_list)
+data_num = data[index_list]
+
+#https://www.kaggle.com/miroslavsabo/young-people-survey
+
+#---------------------- Neural Networking
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
+
+##spliting
+train, test = train_test_split(data_num, test_size = 0.3, random_state = 0)
+x_train_org = train.drop(['Personality'], axis = 1)
+y_train = train['Personality']
+x_test_org = test.drop(['Personality'], axis = 1)
+y_test = test['Personality']
+
+##normalization
+sc = StandardScaler()
+x_train = sc.fit_transform(x_train_org)
+x_test = sc.transform(x_test_org)
+
+## This is going to run for very very long time!!!
+
+from sklearn.neural_network import MLPClassifier
+
+import time
+start = time.time()
+parameters = {
+    'solver':('adam',),
+    'learning_rate_init':(0.00001,),
+    'hidden_layer_sizes':((200,200),(100,200),(200,250)),
+    'max_iter':(1500,),
+    'alpha':(0.01,0.001)
+}
+
+gs = GridSearchCV(estimator = MLPClassifier(), param_grid = parameters, cv=3)
+gs.fit(x_train,y_train)
+end = time.time()
+print(gs.best_score_,"\n")
+print(gs.best_params_,'\n')
+print('time_used',end - start)
+
+from sklearn.neural_network import MLPClassifier
+clf = MLPClassifier(solver='adam', alpha=0.01,hidden_layer_sizes=(200,200), max_iter = 1500, random_state=0,
+                   learning_rate_init = 0.00001)
+clf.fit(x_train, y_train)
+prediction = clf.predict(x_test)
+print('training accuracy:',accuracy_score(y_train,clf.predict(x_train)))
+print('testing accuracy:',accuracy_score(y_test, prediction))
+print(classification_report(y_test, prediction))
+
+dict_pre = {}
+for key in prediction:
+    dict_pre[key] = dict_pre.get(key, 0) + 1
+plt.figure(figsize=(9,5))
+plt.bar(list(dict_pre.keys()),list(dict_pre.values()))
+plt.xlim([0.5,5.5])
+plt.xlabel('predicted group')
+plt.ylabel('number of points')
+plt.title('prediction result')
+for i in range(len(list(dict_pre.keys()))):
+    plt.text(list(dict_pre.keys())[i]-0.1,list(dict_pre.values())[i]+1,str(list(dict_pre.values())[i]))
+#     plt.text()
+plt.show()
+print('prediction',prediction,end = "\n\n")
+
+import pandas as pd
+problem = data_num.groupby('Personality').size()
+plt.figure(figsize=(7,4))
+plt.bar(problem.index,problem.values)
+for i in range(len(problem.values)):
+    plt.text(problem.index[i]-0.1,problem.values[i]+6,str(problem.values[i]))
+plt.xlabel('class')
+plt.ylabel('size')
+plt.title('size of each class grouped by personality')
+# problem.index
+
+one = data_num.groupby('Personality').size().values[0]
+two = data_num.groupby('Personality').size().values[1]
+three = data_num.groupby('Personality').size().values[2]
+four = data_num.groupby('Personality').size().values[3]
+five = data_num.groupby('Personality').size().values[4]
+
+import torch
+x_train = torch.tensor(x_train) # -> tensor 类比np.array
+y_train = torch.tensor(y_train.values-1)
+x_test = torch.tensor(x_test)
+y_test = torch.tensor(y_test.values-1)
+# print(x_train)
+# import torch
+from torch.utils.data import DataLoader, Dataset
+class Data(Dataset):
+    def __init__(self,x_train,y_train,x_test,y_test,iftrain=True):  # __init__是初始化该类的一些基础参数
+        self.iftrain = iftrain
+        if iftrain:
+            self.x_train = x_train
+            self.y_train = y_train
+            self.len = len(self.x_train)
+        else:
+            self.x_test = x_test
+            self.y_test = y_test
+            self.len = len(self.x_test)
+
+    def __getitem__(self, index):
+        if self.iftrain:
+            sample = {'x':self.x_train[index].float(),'y':self.y_train[index]}
+        else:
+            sample = {'x':self.x_test[index].float(), 'y':self.y_test[index]}
+        return sample
+    def __len__(self):
+        return self.len
+
+train_dataset = Data(x_train,y_train,x_test,y_test, iftrain=True)
+test_dataset = Data(x_train,y_train,x_test,y_test, iftrain=False)
+
+train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False)
+# shuffle: whether we change the order of data
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class My_Network(nn.Module):
+    def __init__(self):
+
+        super(My_Network, self).__init__() #####
+
+        self.model = nn.Sequential(
+            nn.Linear(38, 200),
+            nn.ReLU(),
+            nn.Linear(200, 200),
+#             nn.Dropout(0.5),
+            nn.Linear(200, 5),
+        )
+
+    def forward(self, input_data):  # 1 * 149 ->  1*5 
+        logits = self.model(input_data)  #[ [[0],[1],[2],[3],[4]], [[0],[1],[2],[3],[4]] ]
+        return logits
+
+
+net =  My_Network()
+optimizer = torch.optim.Adam(net.parameters(), lr=0.0001, betas=(0.9, 0.99))
+ce_loss = nn.CrossEntropyLoss(reduction = 'none')
+
+import time
+epo = 21
+for epoch in range(1, epo):
+    correct = 0
+    datasize = 0
+    total_loss = 0.
+    net.train()
+    for batch_id, batch in enumerate(train_loader):
+        data = batch['x'] # x train
+        targets = batch['y']  # y_train
+        one_index = torch.nonzero(targets == 0)
+        two_index = torch.nonzero(targets == 1)
+        three_index = torch.nonzero(targets == 2)
+        four_index = torch.nonzero(targets == 3)
+        five_index = torch.nonzero(targets == 4)
+        datasize += len(targets)  
+        output = net(data)  # feed the network with delicious data
+        pred = output.data.max(1)[1]  # choose the max prob class as the prediction
+        correct += pred.eq(targets.long().view_as(pred)).cpu().sum().item()  # pred == targets?
+        pre_loss = ce_loss(F.softmax(output, dim=1), targets.long())  # calc the loss value softmax --> turning into probility. it's a vector
+        loss = pre_loss[one_index].sum() * (1/one) + pre_loss[two_index].sum() * (1/two) + pre_loss[three_index].sum() * (1/three) + pre_loss[four_index].sum() * (1/four) + pre_loss[five_index].sum() * (1/five)
+        
+        total_loss += loss.item()  # [5.5]  -> [5.5].item() -> 5.5
+        optimizer.zero_grad()  # gui ding dongzuo
+        loss.backward()  # backward the gradients 
+        optimizer.step() # updates the model parameters
+
+    total_l = total_loss / float(datasize)
+    acc = float(correct) / float(datasize) * 100
+    print('epoch {}:'.format(epoch))
+    print('[Train]: loss = {:.2f}, acc = {:.2f}%'.format(total_l, acc))
+    
+    net.eval()
+    correct = 0
+    datasize = 0
+    total_loss = 0.
+    start_time = time.time()
+    prediction_list = []
+    for batch_id, batch in enumerate(test_loader):
+        data = batch['x']
+        targets = batch['y']
+        datasize += len(targets)
+        output = net(data)
+        pred = output.data.max(1)[1]
+        correct += pred.eq(targets.long().view_as(pred)).cpu().sum().item()
+        loss = ce_loss(F.softmax(output, dim=1), targets.long())
+
+        total_loss += loss.item()
+        prediction_list.append(pred.item()+1)
+
+    total_l = total_loss / float(datasize)
+    acc = float(correct) / float(datasize) * 100
+    print('[Test]: loss = {:.2f}, acc = {:.2f}%'.format(total_l, acc))
+    
+    dict_pre = {}
+    for key in prediction_list:
+        dict_pre[key] = dict_pre.get(key, 0) + 1
+    plt.bar(list(dict_pre.keys()),list(dict_pre.values()))
+    plt.xlabel('predicted group')
+    plt.ylabel('number of points')
+    plt.title('prediction result')
+    for i in range(len(list(dict_pre.keys()))):
+        plt.text(list(dict_pre.keys())[i]-0.1,list(dict_pre.values())[i]+1,str(list(dict_pre.values())[i]))
+#     plt.text()
+    plt.show()
+    print('prediction',prediction_list,end = "\n\n")
+# model is not good
